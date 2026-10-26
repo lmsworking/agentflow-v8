@@ -731,7 +731,7 @@ test('init creates the configured notebook, ignore entries, and project hooks in
 	assert.equal(second.notebook, '.agentflow/devlog.md')
 	assert.equal(fs.readFileSync(path.join(dir, '.agentflow', 'devlog.md'), 'utf8'), first_notebook)
 	assert.equal(fs.readFileSync(path.join(dir, '.gitignore'), 'utf8'), first_ignore)
-	assert.deepEqual(first_ignore.trim().split('\n'), ['.claude/', '.codex/', '.worktrees/'])
+	assert.deepEqual(first_ignore.trim().split('\n'), ['.claude/', '.codex/', '.pi/extensions/agentflow.js', '.omp/hooks/pre/agentflow.js', '.worktrees/'])
 	const host = ag_settings.detect_host()
 	assert.ok(fs.existsSync(install_hook.config_path_for(host, 'project', dir)))
 	assert.equal(fs.existsSync(path.join(dir, host === 'codex' ? '.claude' : '.codex')), false)

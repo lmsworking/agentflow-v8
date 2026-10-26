@@ -208,7 +208,7 @@ const update_ignore_file = (repo) => {
 	const lines = current.split(/\r?\n/u)
 	// Leave directory-specific owner rules alone, including skill exceptions.
 	// Defaults precede owner rules; preserve the owner's original bytes.
-	const missing = ['.claude/', '.codex/', '.worktrees/'].filter(entry =>
+	const missing = ['.claude/', '.codex/', '.pi/extensions/agentflow.js', '.omp/hooks/pre/agentflow.js', '.worktrees/'].filter(entry =>
 		!lines.some(line => line.replace(/^!?\//u, '').replace(/^!/u, '').startsWith(entry)))
 	const newline = current.includes('\r\n') ? '\r\n' : '\n'
 	const text = missing.length ? `${missing.join(newline)}${newline}${current}` : current
@@ -238,9 +238,10 @@ const init_main = (argv, cwd, log) => {
 	const host = active_host_for_cli(repo)
 	const result = ag_settings.initialize_project({ repo_root: repo, explicit_host: host, notebook_path })
 	update_ignore_file(repo)
-	install_hook.install({ cwd: repo, hosts: [host], quiet: true, say: () => {} })
+	const hook_result = install_hook.install({ cwd: repo, hosts: [host], quiet: true, say: () => {} })
 	const notebook = path.relative(repo, result.notebook_path || path.join(repo, result.config.switches['target-doc'])).split(path.sep).join('/')
 	log(`${result.created ? 'initialized' : 'ready'}: ${notebook}`)
+	if (hook_result.restart_required) log(`hooks: ${host} integration installed; restart or reload the host once`)
 	return { dir: repo, notebook }
 }
 
@@ -778,7 +779,7 @@ const start_result = ({ repo, host, session_id, host_family, notebook, notebook_
 	repository: repo,
 	notebook,
 	active_host: host,
-	...(host === 'claude' ? { session_id } : {}),
+	...(['claude', 'pi', 'omp'].includes(host) ? { session_id } : {}),
 	...(host_family ? { host_family } : {}),
 	git: git_identity,
 	next_run_id: next_run_id(notebook_text, intake.current_ask),
@@ -786,7 +787,7 @@ const start_result = ({ repo, host, session_id, host_family, notebook, notebook_
 	...(config_audit ? { config_audit } : {}),
 	setup_created: setup_result.created,
 	setup_created_files: setup_result.created_files,
-	hooks_restart_required: setup_result.changed_files.includes(host === 'codex' ? '.codex/hooks.json' : '.claude/settings.json'),
+	hooks_restart_required: hook_result?.restart_required === true || setup_result.changed_files.includes(host === 'codex' ? '.codex/hooks.json' : host === 'claude' ? '.claude/settings.json' : host === 'pi' ? '.pi/extensions/agentflow.js' : '.omp/hooks/pre/agentflow.js'),
 	hooks: hook_result_for(host, hook_result),
 	setup: {
 		created: setup_result.created,
@@ -811,7 +812,7 @@ const start_public_result = result => ({
 	repository: result.repository,
 	notebook: result.notebook,
 	active_host: result.active_host,
-	...(result.active_host === 'claude' ? { session_id: result.session_id } : {}),
+	...(['claude', 'pi', 'omp'].includes(result.active_host) ? { session_id: result.session_id } : {}),
 	...(result.host_family ? { host_family: result.host_family } : {}),
 	local_timestamp: format_local_timestamp(),
 	configuration: result.configuration,
@@ -821,7 +822,7 @@ const start_public_result = result => ({
 	setup_created: result.setup_created,
 	setup_created_files: result.setup_created_files,
 	hooks_restart_required: result.hooks_restart_required,
-	...(result.hooks.status === 'not_available' || result.hooks.prompt_capture === 'manual' ? { hooks: result.hooks } : {}),
+	...(['pi', 'omp'].includes(result.active_host) || result.hooks.status === 'not_available' || result.hooks.prompt_capture === 'manual' ? { hooks: result.hooks } : {}),
 	message: result.message,
 	...(result.compaction ? { compaction: result.compaction } : {}),
 	current_ask_identifier: result.current_ask_identifier,
@@ -839,7 +840,7 @@ const emit_start_result = (result, args, repo, log) => {
 			repository: result.repository,
 			notebook: result.notebook,
 			active_host: result.active_host,
-			...(result.active_host === 'claude' ? { session_id: result.session_id } : {}),
+			...(['claude', 'pi', 'omp'].includes(result.active_host) ? { session_id: result.session_id } : {}),
 			...(result.host_family ? { host_family: result.host_family } : {}),
 			configuration: result.configuration,
 			...(result.config_audit ? { config_audit: result.config_audit } : {}),
@@ -847,7 +848,7 @@ const emit_start_result = (result, args, repo, log) => {
 			setup_created: result.setup_created,
 			setup_created_files: result.setup_created_files,
 			hooks_restart_required: result.hooks_restart_required,
-			...(result.hooks.status === 'not_available' || result.hooks.prompt_capture === 'manual' ? { hooks: result.hooks } : {}),
+			...(['pi', 'omp'].includes(result.active_host) || result.hooks.status === 'not_available' || result.hooks.prompt_capture === 'manual' ? { hooks: result.hooks } : {}),
 			message: result.message,
 			...(result.compaction ? { compaction: result.compaction } : {}),
 		},
@@ -858,6 +859,12 @@ const emit_start_result = (result, args, repo, log) => {
 	if (result.compaction) log(result.compaction.message)
 	log(`setup: ${result.setup.created ? 'initialized' : 'already complete'}`)
 	log(`owner message: ${result.message.inserted ? 'recorded' : 'already present'}`)
+	if (['pi', 'omp'].includes(result.active_host)) {
+		log(`session: ${result.session_id}`)
+		log(`hooks: ${result.hooks.status}${result.hooks.changed ? '; installed' : ''}`)
+		if (result.hooks_restart_required) log('hooks: restart or reload the host once to load this integration')
+		if (result.hooks.status === 'conflict') log(`manual capture: ${result.hooks.instructions.capture}`)
+	}
 	if (result.hooks.prompt_capture === 'manual') {
 		log(`session: ${result.session_id}`)
 		log('hooks: Stop available; owner-message capture manual')
@@ -881,13 +888,12 @@ const start_main = (argv, cwd, log, _ask, _width = 80) => {
 	if (args.help) { log(render_usage(80)); return 1 }
 	if (args.error) { log(`${args.error}\n\n${render_usage(80)}`); return 1 }
 	const notebook_owner = require('./notebook-owner')
-	const identity = notebook_owner.identity({ host: args.host, session: args.session })
-
 	const requested = path.resolve(cwd, args.repo)
 	const repo_path = real_path(requested)
 	if (!fs.existsSync(repo_path) || !fs.statSync(repo_path).isDirectory()) throw new Error('start repository path must be an existing directory')
 	const top = git(repo_path, ['rev-parse', '--show-toplevel'])
 	const repo = top.ok ? real_path(top.out) : repo_path
+	const identity = notebook_owner.identity({ host: args.host, session: args.session, allow_missing_session: ['pi', 'omp'].includes(args.host) })
 	const message = read_start_message()
 	const git_identity = top.ok ? repository_identity(repo) : { branch: null, head: null, state: 'unavailable' }
 	if (git_identity.error) throw new Error(git_identity.error)
@@ -935,19 +941,21 @@ const start_main = (argv, cwd, log, _ask, _width = 80) => {
 		throw error
 	}
 	if (lock.existing) {
+		const hook_result = install_hook.install({ cwd: repo, hosts: [args.host], quiet: true, say: () => {} })
 		const intake = resume_intake.collect_intake({ repo_root: repo, notebook_path: configured_target, active_host: args.host, ...(args.host_family ? { host_family: args.host_family } : {}), interrupted_start: true })
 		const result = start_result({
 			repo,
 			host: args.host,
 			session_id: identity.session,
-				notebook: intake.notebook,
-				notebook_text: fs.readFileSync(path.join(repo, intake.notebook), 'utf8'),
-				intake,
-				setup_result: { created: false, created_files: [], changed_files: [] },
+			notebook: intake.notebook,
+			notebook_text: fs.readFileSync(path.join(repo, intake.notebook), 'utf8'),
+			intake,
+			setup_result: { created: false, created_files: [], changed_files: [] },
 			message_result: { inserted: false, reason: 'startup_lock_present', owner_message: message },
 			provenance: [],
 			git_identity,
 			host_family: args.host_family,
+			hook_result: Array.isArray(hook_result) ? hook_result[0] : hook_result,
 		})
 		return emit_start_result(result, args, repo, log)
 	}
@@ -956,7 +964,7 @@ const start_main = (argv, cwd, log, _ask, _width = 80) => {
 	try {
 		const guarded_file = notebook_owner.safe_path(repo, configured_target, true)
 		input_lock = notebook_writer.acquire_close_round_lock(`${guarded_file}.close-round.lock`)
-		const ownership = notebook_owner.guard({ root: repo, notebook: configured_target, host: args.host, session: args.session, allow_missing: true, resume_unclaimed: true })
+		const ownership = notebook_owner.guard({ root: repo, notebook: configured_target, host: args.host, session: args.session, allow_missing_session: ['pi', 'omp'].includes(args.host), allow_missing: true, resume_unclaimed: true })
 		const before_paths = start_snapshot_paths(repo, args.host, configured_target)
 		const before = new Map(before_paths.map(relative => [relative, start_file_identity(path.join(repo, relative))]))
 		const initialized = fs.existsSync(config_file)
@@ -1032,7 +1040,7 @@ const active_host_for_cli = (repo) => {
 		if (!(error instanceof ag_settings.SettingsError) || error.code !== 'AG_HOST_UNKNOWN') throw error
 		const recorded_host = host_from_root_status(repo)
 		if (recorded_host) return recorded_host
-		throw new ag_settings.SettingsError('agf could not identify the project host from the current STATUS; run godev once from Codex or Claude, then retry', { code: 'AG_HOST_UNKNOWN' })
+		throw new ag_settings.SettingsError('agf could not identify the project host from the current STATUS; run godev once from a supported host, then retry', { code: 'AG_HOST_UNKNOWN' })
 	}
 }
 

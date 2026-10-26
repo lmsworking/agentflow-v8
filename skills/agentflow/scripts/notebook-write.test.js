@@ -1127,6 +1127,50 @@ node_test.test('close publishes sidecar evidence before notebook and missing rec
   const checked = require('./completion-context').validate_candidate({ devlog_text: text, context: { ...ctx, active_host: 'codex' } });
   node_assert.ok(checked.checks.some(c => c.status === 'fail' && /records unavailable/i.test(c.detail)));
 });
+node_test.test('failed metadata validation leaves a valid fenced closeout retryable', () => {
+  const fixture = close_fixture();
+  const config_path = node_path.join(fixture.root, 'ag.json');
+  const config = JSON.parse(node_fs.readFileSync(config_path, 'utf8'));
+  config.switches['target-doc'] = fixture.notebook_path;
+  node_fs.writeFileSync(config_path, JSON.stringify(config));
+  for (const [args, input] of [
+    [['init', '-q', '-b', 'main']],
+    [['config', 'user.name', 'Agentflow Test']],
+    [['config', 'user.email', 'agentflow@example.invalid']],
+    [['add', 'ag.json', 'devlog.md']],
+    [['commit', '-qm', 'baseline']],
+  ]) {
+    const result = node_child_process.spawnSync('git', args, { cwd: fixture.root, encoding: 'utf8' });
+    node_assert.equal(result.status, 0, result.stderr);
+  }
+  write(fixture.root, 'pi-git-smoke.txt', 'Pi Agentflow Git closeout smoke test\n');
+  const metadata_dir = require('./completion-record').location({
+    project_root: fixture.root, notebook_path: fixture.notebook_path, ask: 'A-001',
+  });
+  const attempt = separator => {
+    const input = JSON.parse(close_input());
+    input.reply += `\n\`\`\`completion-metadata\nHost review: PASS — inspected the smoke artifact.\nInformational document: pi-git-smoke.txt ${separator} requested one-line smoke-test text\n\`\`\`\n`;
+    return run_writer_stdin(fixture.root, close_command(), JSON.stringify(input));
+  };
+
+  const rejected = attempt('?');
+  node_assert.notEqual(rejected.status, 0);
+  node_assert.match(failure_text(rejected), /candidate completion check failed: cross_check/);
+  node_assert.equal(node_fs.existsSync(metadata_dir.file), false);
+  node_assert.equal(node_fs.existsSync(metadata_dir.reference_file), false);
+
+  const retry = attempt('—');
+  node_assert.equal(retry.status, 0, failure_text(retry));
+  const text = node_fs.readFileSync(fixture.notebook_file, 'utf8');
+  const round = require('./round-linter').parse_devlog(text).rounds.find(item => item.id === 'A-001');
+  const metadata = require('./round-linter').completion_metadata(round.reply_text, {
+    project_root: fixture.root, notebook_path: fixture.notebook_path, ask: 'A-001',
+  });
+  node_assert.equal(metadata.error, '');
+  node_assert.deepEqual(metadata.document_effects, [{
+    path: 'pi-git-smoke.txt', effect: 'informational', reason: 'requested one-line smoke-test text',
+  }]);
+});
 
 node_test.test('append-reply publishes metadata and record-write failure leaves notebook unchanged', () => {
   for (const fail_write of [false, true]) {

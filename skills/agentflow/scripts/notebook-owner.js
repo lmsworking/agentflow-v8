@@ -69,14 +69,14 @@ const linked_worktree = root => {
   catch { return false; }
 };
 
-const identity = ({ host, session, env = process.env } = {}) => {
+const identity = ({ host, session, env = process.env, allow_missing_session = false } = {}) => {
   host = host || require('./ag-settings').detect_host({ env });
   if (!/^[a-z0-9][a-z0-9_-]{0,127}$/u.test(host)) fail('host must be a safe lowercase ID');
-  const native = host === 'codex' ? [env.CODEX_THREAD_ID, env.CODEX_SESSION_ID] : host === 'claude' ? [env.CLAUDE_CODE_SESSION_ID, env.CLAUDE_SESSION_ID] : [];
+  const native = host === 'codex' ? [env.CODEX_THREAD_ID, env.CODEX_SESSION_ID] : host === 'claude' ? [env.CLAUDE_CODE_SESSION_ID, env.CLAUDE_SESSION_ID] : host === 'pi' ? [env.PI_SESSION_ID] : [];
   const candidates = [...native, session || env.AGENTFLOW_SESSION_ID].filter(value => value !== undefined && value !== '');
   if (candidates.some(value => !safe_id(value))) fail('session ID must contain 1–128 safe letters, digits, dots, colons, underscores or hyphens');
   if (new Set(candidates).size > 1) fail('conflicting session IDs; pass the current host session and remove conflicting inherited markers');
-  if (!candidates.length) fail(`session identity is missing for ${host}; retain one unique session ID and pass --session <id> (or AGENTFLOW_SESSION_ID) to every writer`);
+  if (!candidates.length && !allow_missing_session) fail(`session identity is missing for ${host}; retain one unique session ID and pass --session <id> (or AGENTFLOW_SESSION_ID) to every writer`);
   return { host, session: candidates[0] };
 };
 
@@ -196,8 +196,7 @@ const first_stream_request = (info, text, parsed) => {
   return before !== null && after !== null && result.stdout.slice(0, before.body_start) === text.slice(0, after.body_start);
 };
 
-const guard = ({ root = process.cwd(), notebook, text, host, session, ask, workspace, allow_missing = false, allow_closed = false, resume_unclaimed = false } = {}) => {
-  const who = identity({ host, session });
+const guard = ({ root = process.cwd(), notebook, text, host, session, ask, workspace, allow_missing = false, allow_missing_session = false, allow_closed = false, resume_unclaimed = false } = {}) => {
   const info = location({ root, notebook, workspace });
   const stream = linked_worktree(info.root);
   if (stream) {
@@ -205,6 +204,10 @@ const guard = ({ root = process.cwd(), notebook, text, host, session, ask, works
     const expected = branch.status === 0 ? require('./agf').stream_doc(info.root, branch.stdout.trim()) : null;
     if (!expected || path_key(canonical_relative(info.root, expected)) !== path_key(info.notebook)) fail('a stream worktree may write only its canonical stream notebook; the checked-out main notebook belongs to the main session');
   }
+  const policy = require('./ag-settings').read_notebook_controls(info.root, info.notebook)['notebook-ownership'];
+  if (policy !== info.policy) fail('ownership policy changed during the guard');
+  const who = identity({ host, session, allow_missing_session });
+  if (allow_missing_session && who.session === undefined && policy !== 'off') fail('Pi/OMP startup requires the current session ID when notebook ownership is on; restart with the Agentflow extension active, or provide its exact session ID');
   if (text === undefined) {
     const file = safe_path(info.root, info.notebook);
     text = fs.existsSync(file) ? writer().read_regular_file(file, 'notebook').text : allow_missing ? '# → Ask / A-001\n\n+\n' : fail('notebook is missing');
@@ -212,8 +215,6 @@ const guard = ({ root = process.cwd(), notebook, text, host, session, ask, works
   const parsed = rounds(text);
   const current = parsed.at(-1);
   if (!current || !/^A-\d{3}$/u.test(current.id)) fail('notebook has no unambiguous current Ask');
-  const policy = require('./ag-settings').read_notebook_controls(info.root, info.notebook)['notebook-ownership'];
-  if (policy !== info.policy) fail('ownership policy changed during the guard');
   const target = ask || current.id;
   const closed_target = allow_closed && parsed.some(round => round.id === target && round.reply_text.trim());
   if (policy === 'off') {

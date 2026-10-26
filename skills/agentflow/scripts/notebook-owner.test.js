@@ -147,9 +147,11 @@ test('foreign Reply preparation and read-only intake leave legacy configuration 
   assert.deepEqual(state(root), before);
 });
 
-test('identity requires a retained session and rejects native conflicts while ignoring unrelated generic markers', () => {
+test('identity requires a retained session except for explicit sessionless bootstrap and rejects native conflicts', () => {
   const { identity } = require('./notebook-owner');
   assert.throws(() => identity({ host: 'codex', env: {} }), /identity is missing/u);
+  assert.deepEqual(identity({ host: 'pi', env: { PI_SESSION_ID: 'pi-session' } }), { host: 'pi', session: 'pi-session' });
+  assert.throws(() => identity({ host: 'pi', session: 'other', env: { PI_SESSION_ID: 'pi-session' } }), /conflicting/u);
   assert.throws(() => identity({ host: 'codex', env: { CODEX_THREAD_ID: ids.A, CODEX_SESSION_ID: ids.B } }), /conflicting/u);
   assert.throws(() => identity({ host: 'claude', session: 'second', env: { CLAUDE_SESSION_ID: 'first' } }), /conflicting/u);
   assert.deepEqual(identity({ host: 'portable', session: 'retained', env: { CODEX_THREAD_ID: ids.A, CLAUDE_SESSION_ID: ids.B } }), { host: 'portable', session: 'retained' });

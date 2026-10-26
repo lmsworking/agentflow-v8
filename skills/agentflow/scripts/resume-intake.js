@@ -155,7 +155,7 @@ const expected_unborn_owner_input = ({ repo_root, notebook_path, notebook_text, 
   expected_config.switches['workspace-dir'] = '.agentflow'
   expected_config.switches['target-doc'] = notebook_path
   if (!isDeepStrictEqual(config, expected_config)) return false
-  if (fs.readFileSync(path.join(repo_root, '.gitignore'), 'utf8') !== '.claude/\n.codex/\n.worktrees/\n') return false
+  if (fs.readFileSync(path.join(repo_root, '.gitignore'), 'utf8') !== '.claude/\n.codex/\n.pi/extensions/agentflow.js\n.omp/hooks/pre/agentflow.js\n.worktrees/\n') return false
 
   const expected_status = settings.format_status({
     project: path.basename(repo_root),

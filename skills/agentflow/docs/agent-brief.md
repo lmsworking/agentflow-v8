@@ -6,11 +6,11 @@ Agentflow is a project workflow for an AI assistant. Its main record is a Markdo
 
 1. Read the complete installed Agentflow skill at the path provided by the host. Do not guess its installation path. Read the repository's `AGENTS.md` or other host instructions when applicable.
 
-2. Run the skill's single `agf start` command with the exact owner message on standard input. Use the returned notebook path, Ask number, configuration, Git state, and stream decision. Codex installs capture and Stop hooks. Claude retains Stop and startup capture; manually capture later actual owner messages with `--host claude --session <startup session_id>`. Never capture generated reports as owner input. Other hosts need a stable explicit host and session ID and manual capture.
+2. Run the skill's single `agf start` command with the exact owner message on standard input. Use the returned notebook path, Ask number, configuration, Git state, and stream decision. Codex installs capture and Stop hooks. Pi and OMP install project extensions that capture later owner messages and run settlement checks; restart when startup requires it and use the injected host/session IDs. Claude retains Stop and startup capture; manually capture later actual owner messages with `--host claude --session <startup session_id>`. Never capture generated reports as owner input. Other hosts need a stable explicit host and session ID and manual capture.
 
 3. Read the live notebook to its end. Carry forward any unanswered question that the owner later answered inline. A bare `godev` with an empty Ask only activates the workflow; an existing Ask resumes it.
 
-4. Record each later owner message in the current Ask before acting unless the input hook already captured it. Keep historical completed rounds unchanged. Save material progress in RUN entries, and a WIP checkpoint after ten active minutes when logging permits it.
+4. Record each later owner message in the current Ask before acting unless the active host's capture notice confirms that the input hook already saved it. Keep historical completed rounds unchanged. Save material progress in RUN entries, and a WIP checkpoint after ten active minutes when logging permits it.
 
 5. Before closing, verify the requested outcome, inspect every changed path, run the relevant checks and required review, save the full Reply, and use `agf close`. With `inline-reply: off`, the final chat message is only the exact path receipt returned by close; the answer is in the notebook.
 

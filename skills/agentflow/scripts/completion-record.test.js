@@ -102,6 +102,18 @@ test('publisher externalizes metadata and preserves bytes on retry', () => {
   fs.writeFileSync(read.record_file, before.toString().replace('inspected', 'fabricated'))
   assert.match(completion_metadata(reply, ctx).error, /records unavailable.*digest/i)
 })
+test('an open unreferenced Ask accepts a corrected fenced draft over its pending record', () => {
+  const ctx = fixture()
+  records.publish_reply(draft, ctx)
+  const corrected = draft.replace('inspected the requested change', 'inspected the corrected change')
+
+  const pending = completion_metadata(corrected, ctx)
+  assert.equal(pending.error, '')
+  assert.match(pending.text, /corrected change/)
+
+  const published = records.publish_reply(corrected, ctx)
+  assert.match(completion_metadata(published, ctx).text, /corrected change/)
+})
 
 test('large archives allow unchanged and corrected completion retries without changing history', () => {
   const ctx = fixture(), reply = records.publish_reply(draft, ctx)

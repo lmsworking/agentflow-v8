@@ -1,10 +1,10 @@
-# Agentflow v8.4.15
+# Agentflow v8.4.16
 
 **English** · [繁體中文](README.zh-tw.md)
 
 Give your AI assistant a project notebook, so tomorrow’s conversation can pick up today’s work.
 
-Agentflow has verified integrations for **Codex and Claude Code** and a portable core for any host that provides file and command tools plus enough state retention for capture and closeout. It keeps your requests, decisions, progress, and results in a readable file. You can use it to improve a document, fix a bug, or carry a larger project across several sessions.
+Agentflow has verified integrations for **Codex and Claude Code**, plus project-scoped hook integrations for **Pi and Oh My Pi (OMP)**. Other hosts can use the portable core when they provide file and command tools plus enough state retention for manual capture and closeout. Agentflow keeps your requests, decisions, progress, and results in a readable file. You can use it to improve a document, fix a bug, or carry a larger project across several sessions.
 
 - **Start simply:** Type `godev`, then describe the task in your own words.
 
@@ -18,7 +18,7 @@ Automatic archiving reports when an older answer or request keeps history in the
 
 ## Install
 
-You need Node.js 18 or newer and a host with file and command tools. Codex and Claude provide verified hooks; a generic host uses an explicit safe ID, optional known family, and manual capture/closeout because hooks are not available. Git is needed for version history, feature workspaces, and some installation methods. Ordinary notebook work can use a folder that is not a Git repository.
+You need Node.js 18 or newer and a host with file and command tools. Codex and Claude provide verified hooks; Pi and OMP install project-scoped extensions that automatically capture owner prompts and check completion after restart. Generic hosts use an explicit safe ID, optional known family, and manual capture/closeout. Git is needed for version history, feature workspaces, and some installation methods. Ordinary notebook work can use a folder that is not a Git repository.
 
 Run this in a terminal and choose your assistant and installation scope:
 
@@ -70,7 +70,7 @@ The notebook keeps the conversation, so a fresh session can resume an unfinished
 
 `notebook-ownership: on|off` is optional and defaults to `off`, including when omitted. On gives one session control of an active notebook round; off allows sessions to mix messages, decisions and replies. Both modes retain file locks, safe paths, current-round checks, unchanged snapshots and stream routing. Off preserves existing ownership records. Use `notebook-ownership: on` when a notebook may be shared. Turning it back on may require explicit recovery of a retained record; no noticeable startup speed gain has been proven.
 
-Codex records later owner messages automatically. Claude keeps startup capture and its completion-checking Stop hook, but the assistant must manually save later actual owner messages using the startup `session_id`; generated reports must not enter the Ask. Updating setup removes owned Claude prompt hooks in the selected scope. Older global installations need their own update and hook migration; restart when prompted.
+Codex automatically records later owner messages. Pi and Oh My Pi install project extensions that automatically record prompts and run settlement checks after restart. On first setup, omit the session ID only while notebook ownership is off; with ownership on, supply the actual session ID. Claude keeps its completion-checking Stop hook but requires manual capture of later owner messages with the startup `session_id`; generated reports must not enter the Ask. Updating setup removes owned Claude prompt hooks in the selected scope. Older global installations need their own update and hook migration. LSP is separate and optional; it provides code navigation and diagnostics, not workflow automation.
 
 ## Check installation
 

@@ -6,7 +6,7 @@ English · [繁體中文](AG_GUIDE.zh-tw.md)
 
 Agentflow gives your AI assistant a project notebook. It keeps what you asked for, the decisions you made, progress, and the result together. When you return tomorrow or start a fresh conversation, the assistant has a place to pick up the work.
 
-- **Start with a normal request.** Open your project in a host that provides file and command tools, type `godev`, then explain what you want. Codex and Claude keep their native integrations; another host can use the portable core with an explicit safe host ID and manual capture instructions.
+- **Start with a normal request.** Open your project in a host that provides file and command tools, type `godev`, then explain what you want. Codex and Claude use their native integrations; Pi and OMP install project-scoped extensions; other hosts use the portable core with an explicit safe host ID and manual capture.
 
 - **Read the result in the notebook.** The assistant’s closing message points to the file. It is usually `.agentflow/devlog.md`.
 
@@ -14,7 +14,7 @@ Agentflow gives your AI assistant a project notebook. It keeps what you asked fo
 
 ## 1. Get ready
 
-You need a host with file and command tools, Node.js 18 or newer, and enough session state to retain the notebook round. Codex and Claude have verified integrations; other hosts use the portable core and are not automatically named as live integrations. Git is needed for version history, separate feature workspaces, and some installation methods. Your working folder can still use the notebook without being a Git repository; Agentflow will not create a repository for you.
+You need a host with file and command tools, Node.js 18 or newer, and enough session state to retain the notebook round. Codex and Claude have verified integrations; Pi and OMP use project-scoped extension hooks. Other hosts use the portable core and are not automatically named as live integrations. Git is needed for version history, separate feature workspaces, and some installation methods. Your working folder can still use the notebook without being a Git repository; Agentflow will not create a repository for you.
 
 `notebook-ownership: on` makes each active notebook round belong to one session. Another session stops before changing its prompts or progress, even when streams are off. This optional switch defaults to `off`, including when absent: sessions can then mix messages, decisions and replies in one round. File locks, safe paths, current-round checks and stream routing still apply, and existing ownership records are preserved. Use on when a notebook may be shared; no noticeable startup speed gain has been proven. Generic hosts must retain a unique `--session <id>` and pass it with their `--host <id>` to startup, capture, progress and closeout; a new independent session uses a new ID. Native hosts use their current session identity, or explicitly pass it when the shell does not provide it.
 
@@ -38,22 +38,15 @@ Project hooks are installed for the assistant running `godev`. If Codex initiali
 
 Hook setup prefers an existing global host installation. If neither global host script exists, it uses the running installation, including project skills and Claude plugin-cache installations. After updating, run `godev` to repair recognized stale hooks and restart the assistant when prompted. Keep that installation directory available.
 
-### Pi and Oh My Pi: basic manual support
+### Pi and Oh My Pi: automatic project hooks
 
-- Install the applications with `brew install pi-coding-agent can1357/tap/omp`, then run `pi` or `omp` from your project. These are the [Pi Homebrew formula](https://formulae.brew.sh/formula/pi-coding-agent) and [OMP's documented tap](https://github.com/can1357/oh-my-pi#install). Complete provider login before asking either application to do work.
+- Run `godev` in the project from `pi` or `omp`. Startup installs a project extension for Pi under `.pi/extensions/` or an OMP hook under `.omp/hooks/pre/`. Restart the host once when startup reports that the integration changed.
 
-- Give the assistant the absolute directory containing the complete Agentflow skill. For example, replace the path below with your installation and use `omp` instead of `pi` in the OMP conversation:
+- After restart, the extension captures actual owner messages and runs Agentflow's completion check when a turn settles. Before the first extension load, identify the current host as `pi` or `omp` and pass `--host` explicitly. Omit `--session` only for the first bootstrap when notebook ownership is off; with ownership on, provide the actual session ID or startup refuses before changing the notebook. After activation, use the injected host and session IDs unchanged for Agentflow commands. `no-ag` still bypasses capture and completion checks.
 
-```text
-Read /absolute/path/to/agentflow/SKILL.md and use that complete skill directory.
-Use host ID pi and retain one unique session ID for this conversation.
-Pass both IDs to every Agentflow command as the skill requires.
-godev
-```
+- LSP is separate and optional. It provides code navigation and diagnostics when the host and language server support them; it is not required for Agentflow's notebook, workflow, or hook automation.
 
-- Both use the ordinary generic-host contract: the assistant manually records later messages and closes through `agf close`. There are no Agentflow Pi/OMP capture hooks, automatic completion enforcement, or verified external-worker recipes. Keep the session ID when resuming the same conversation; independent conversations need distinct IDs.
-
-- On macOS, Pi 0.85.1 and OMP 18.2.6 were installed and launched in real terminals, and the shared generic-host checks passed in Git and plain folders. Pi loaded the skill from an explicit path. Model-driven work in both applications remains unverified because provider authentication was unavailable; terminal startup alone does not prove that journey.
+- Automatic completion checks and prompt capture do not verify model-driven work. External-worker recipes and full authenticated model journeys still need host-specific verification.
 
 ### Keep the skill up to date
 

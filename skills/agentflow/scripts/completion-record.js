@@ -90,6 +90,14 @@ const fence_span = reply => {
   return span
 }
 
+const published_reply = (reply, span) => {
+  const before = reply.slice(0, span.start)
+  const after = reply.slice(span.end)
+  if (!after.trim()) return before + after
+  const newline = reply.includes('\r\n') ? '\r\n' : '\n'
+  return before.replace(/(?:\r?\n[ \t]*)+$/u, '') + newline.repeat(2) + after.replace(/^(?:[ \t]*\r?\n)+/u, '')
+}
+
 const read_record = (info, expected_digest) => {
   writer().resolve_path(info.root, info.relative, 'completion record')
   if (fs.lstatSync(info.file).size > MAX_BYTES) throw Error('completion record is oversized')
@@ -114,8 +122,19 @@ const read_metadata = (reply, options, inline_parser) => {
       if (base.error || !options?.project_root || !options.notebook_path || !options.ask) return base
       const info = location(options)
       const has_reference = fs.lstatSync(info.reference_file, { throwIfNoEntry: false })
-      if (fence_span(reply) || metadata_field.test(base.text)) {
-        if (has_reference) throw Error('mixed completion metadata authority is ambiguous')
+      const span = fence_span(reply)
+      if (span || metadata_field.test(base.text)) {
+        if (has_reference) {
+          const outside_fields = span && inline_parser(reply.slice(0, span.start) + reply.slice(span.end))
+          const notebook_file = writer().resolve_path(info.root, info.notebook, 'notebook')
+          const notebook = writer().read_regular_file(notebook_file, 'notebook')
+          const current_round = require('./round-linter').parse_devlog(notebook.text).rounds.at(-1)
+          const pending_fenced_draft = Boolean(span) && !metadata_field.test(outside_fields.text) &&
+            !/^Completion record:/imu.test(outside_fields.text) &&
+            read_reference(info).reply_sha256 === reply_digest(published_reply(reply, span)) &&
+            current_round?.id === info.ask && !current_round.reply_text.trim()
+          if (!pending_fenced_draft) throw Error('mixed completion metadata authority is ambiguous')
+        }
         return base
       }
       // Legacy metadata-free Replies carry no evidence; absence never invents any.
@@ -225,14 +244,7 @@ const publish_reply = (reply, options) => {
   if (metadata_field.test(outside.text)) throw Error('mixed completion metadata authority is ambiguous')
   const info = location(options)
   const raw_published = reply.slice(0, span.start) + reply.slice(span.end)
-  // Removing our block leaves one paragraph break, not an extra empty
-  // paragraph that hosts normalize when displaying the returned Reply.
-  const before = reply.slice(0, span.start)
-  const after = reply.slice(span.end)
-  const newline = reply.includes('\r\n') ? '\r\n' : '\n'
-  const published = after.trim()
-    ? before.replace(/(?:\r?\n[ \t]*)+$/u, '') + newline.repeat(2) + after.replace(/^(?:[ \t]*\r?\n)+/u, '')
-    : raw_published
+  const published = published_reply(reply, span)
   let record = { version: 1, notebook: info.notebook, ask: info.ask, created_at: format_local_timestamp(), metadata_text: span.text }
   let prior
   try { prior = writer().read_regular_file(info.file, 'completion record') } catch (error) { if (fs.existsSync(info.file) || fs.lstatSync(path.dirname(info.file), { throwIfNoEntry: false })?.isSymbolicLink()) throw error }

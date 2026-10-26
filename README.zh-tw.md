@@ -1,10 +1,10 @@
-# Agentflow v8.4.15
+# Agentflow v8.4.16
 
 [English](README.md) · **繁體中文**
 
 幫 AI 助理準備一本專案筆記，明天開新的對話，也能接著今天的工作做。
 
-Agentflow 已驗證 **Codex 和 Claude Code** 的整合，也提供 通用核心流程，讓具備檔案、指令和狀態保存能力的其他 host 使用。它會把你的要求、決定、進度和結果保存在容易閱讀的檔案裡。改文件、修程式，或分好幾次完成一個專案，都能用。
+Agentflow 已驗證 **Codex 和 Claude Code** 的整合，並為 **Pi 和 Oh My Pi (OMP)** 提供專案範圍的 hooks 整合。其他 host 可在具備檔案、指令和狀態保存能力時使用通用核心流程，並手動記錄訊息與收尾。Agentflow 會把你的要求、決定、進度和結果保存在容易閱讀的檔案裡。改文件、修程式，或分好幾次完成一個專案，都能用。
 
 - **直接開始：** 輸入 `godev`，再用平常說話的方式交代任務。
 
@@ -18,7 +18,7 @@ Agentflow 已驗證 **Codex 和 Claude Code** 的整合，也提供 通用核心
 
 ## 安裝
 
-需要 Node.js 18 或更新版本，以及能讀寫檔案、執行指令的 host。Codex 和 Claude 提供已驗證的 hooks；其他助理 要使用明確安全 ID、選填的已知 family，並手動記錄訊息和收尾，因為它沒有這些 hooks。要保留版本紀錄、建立功能工作區，或使用某些安裝方式時，需要 Git。一般筆記工作可以在還不是 Git 儲存庫的資料夾裡進行。
+需要 Node.js 18 或更新版本，以及能讀寫檔案、執行指令的 host。Codex 和 Claude 提供已驗證的 hooks；Pi 和 OMP 會安裝專案範圍的擴充，在重新啟動後自動記錄使用者訊息並檢查回合完成狀態。通用 host 需要明確安全 ID、選填的已知 family，並手動記錄訊息和收尾。要保留版本紀錄、建立功能工作區，或使用某些安裝方式時，需要 Git。一般筆記工作可以在還不是 Git 儲存庫的資料夾裡進行。
 
 在終端機執行以下指令，再選擇助理和安裝範圍：
 
@@ -70,27 +70,12 @@ godev
 
 `notebook-ownership: on|off` 預設為 `off`，省略時也一樣。開啟時，一個進行中的筆記回合只由一個工作階段寫入；關閉時，不同工作階段可能將訊息、決定和回覆混在同一回合。兩種模式都保留檔案鎖、安全路徑、目前回合、未改動快照與筆記路由檢查。關閉時不改動既有所有權紀錄。若可能共用筆記，請設為 `notebook-ownership: on`；重新開啟時，保留的舊紀錄可能需要明確接管。目前沒有證據顯示關閉後啟動會明顯加快。
 
-Codex 會自動記錄後續的使用者訊息。Claude 保留啟動訊息記錄及檢查收尾的 Stop hook，但助理必須使用啟動回傳的 `session_id` 手動保存後續真正由使用者送出的訊息；自動產生的報告不得寫入 Ask。更新設定時，只會移除所選範圍內屬於 Agentflow 的 Claude 訊息 hook；舊的全域安裝須另外更新並移除該 hook。收到提醒時請重新啟動。
+Codex 會自動記錄後續的使用者訊息。Pi 和 OMP 會安裝專案擴充，在重新啟動後自動記錄訊息並執行回合完成檢查。初次設定時，只有在筆記所有權關閉時才省略 session ID；開啟時須提供實際 session ID。Claude 保留啟動訊息記錄及檢查收尾的 Stop hook，但助理必須使用啟動回傳的 `session_id` 手動保存後續真正由使用者送出的訊息；自動產生的報告不得寫入 Ask。LSP 與這些 hooks 分開，並非 Agentflow 工作流程自動化的必要條件。
 
 ## 檢查安裝
 
 請 agent 執行 `agf setup`；如果指令捷徑已可使用，也能直接在終端機執行。`agf setup --fix` 會先備份 shell 設定，再補上缺少的捷徑。選用的協作助理無法使用，不一定代表安裝失敗。安裝專案 hooks 後，若收到重新啟動提醒，照做即可。
 
-<details>
-
-<summary>找不到 agf 指令捷徑時</summary>
-
-若全域安裝位於以下位置，請執行對應的設定檔。若安裝在其他位置，請先讓 agent 找出已安裝的 skill。
-
-```sh
-node "$HOME/.codex/skills/agentflow/scripts/setup.js"
-```
-
-```sh
-node "$HOME/.claude/skills/agentflow/scripts/setup.js"
-```
-
-</details>
 
 ## Windows 與貢獻者測試
 

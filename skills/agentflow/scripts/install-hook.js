@@ -1,16 +1,16 @@
 'use strict';
 
-// Turn the Agentflow Stop-hook referee on (or off) for one or both host CLIs.
-// It backs up each config file first, then adds (or removes) exactly one
-// Stop-hook entry. Running it twice never makes a duplicate.
+// Install or remove native Claude/Codex hooks and project-scoped Pi/OMP extensions.
+// Native config files are backed up; owned entries are idempotent, and foreign
+// project extension files are never replaced.
 //
-//   node install-hook.js --project              add for both hosts, this repo
-//   node install-hook.js --global               add for both hosts, machine-wide
-//   node install-hook.js --project --off        remove again
-//   node install-hook.js --project --host codex only touch the codex config
+//   node install-hook.js --project              add integrations for all hosts
+//   node install-hook.js --global               add native hooks machine-wide
+//   node install-hook.js --project --off        remove owned project integrations
+//   node install-hook.js --project --host pi    touch only Pi's project extension
 //   node install-hook.js --project --quiet      no output (for scripted use)
 //
-// Host config targets (both use the same {hooks: {Stop: [...]}} JSON shape):
+// Native hook targets:
 //   claude  project ./.claude/settings.json   global ~/.claude/settings.json
 //   codex   project ./.codex/hooks.json       global ~/.codex/hooks.json
 //
@@ -27,6 +27,7 @@ const node_fs = require('node:fs');
 const node_os = require('node:os');
 const node_path = require('node:path');
 const { execFileSync } = require('node:child_process');
+const { pathToFileURL } = require('node:url');
 const ag_settings = require('./ag-settings.js');
 
 const shell_literal = value => `'${String(value).replaceAll("'", "'\\''")}'`;
@@ -47,6 +48,8 @@ const guard_command = `node ${shell_literal(installed_script_for('codex', 'devlo
 const guard_script = `#!/bin/sh\n# ${guard_marker} — blocks committing root devlog.md on a non-default branch (I-039).\n# Installed by install-hook.js; remove with: node install-hook.js --project --off\n${guard_command}\n`;
 
 const HOSTS = ['claude', 'codex'];
+const PROJECT_HOSTS = ['pi', 'omp'];
+const ALL_HOSTS = [...HOSTS, ...PROJECT_HOSTS];
 const SAFE_HOST = /^[a-z0-9][a-z0-9_-]{0,127}$/u;
 const safe_host = host => typeof host === 'string' && SAFE_HOST.test(host);
 
@@ -101,7 +104,7 @@ const parse_args = argv => {
   const quiet = flags.has('--quiet');
   const host_index = args.indexOf('--host');
   const host_value = host_index >= 0 ? args[host_index + 1] : 'all';
-  const hosts = host_value === 'all' ? HOSTS : [host_value];
+  const hosts = host_value === 'all' ? (scope === 'project' ? ALL_HOSTS : HOSTS) : [host_value];
 
   if (!hosts.every(host => host === 'all' || safe_host(host))) {
     console.error(`Unknown --host value: ${host_value} (use a safe lowercase host id or all)`);
@@ -116,6 +119,42 @@ const config_path_for = (host, scope, cwd = process.cwd()) => {
   const file = host === 'claude' ? node_path.join('.claude', 'settings.json') : node_path.join('.codex', 'hooks.json');
 
   return node_path.join(base, file);
+};
+const project_host_file = (host, cwd) => host === 'pi'
+  ? node_path.join(cwd, '.pi', 'extensions', 'agentflow.js')
+  : node_path.join(cwd, '.omp', 'hooks', 'pre', 'agentflow.js');
+
+const project_host_source = host => host === 'pi'
+  ? `// agentflow-owned Pi extension\nmodule.exports = pi => require(${JSON.stringify(node_path.join(__dirname, 'pi-omp-adapter.js'))}).pi_extension(pi);\n`
+  : `// agentflow-owned OMP extension\nimport adapter from ${JSON.stringify(pathToFileURL(node_path.join(__dirname, 'pi-omp-adapter.js')).href)};\nexport default omp => adapter.omp_extension(omp);\n`;
+
+const apply_project_host = (host, off, say, cwd) => {
+  const file = project_host_file(host, cwd);
+  const source = project_host_source(host);
+  let existing;
+  try { existing = node_fs.readFileSync(file, 'utf8'); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+  if (off) {
+    if (existing === source) {
+      node_fs.unlinkSync(file);
+      say(`${host}: removed owned integration ${file}`);
+      return { status: 'available', host, changed: true, config_path: file, restart_required: true };
+    }
+    say(`${host}: ${existing === undefined ? 'integration absent' : 'foreign integration left untouched'} at ${file}`);
+    return { status: existing === undefined ? 'available' : 'conflict', host, changed: false, config_path: file, restart_required: false, ...(existing === undefined ? {} : { reason: 'foreign_project_integration', instructions: manual_instructions(host) }) };
+  }
+  if (existing !== undefined) {
+    const owned = existing === source;
+    say(`${host}: ${owned ? 'integration already installed' : 'foreign integration left untouched'} at ${file}`);
+    return { status: owned ? 'available' : 'conflict', host, changed: false, config_path: file, restart_required: false, ...(owned ? {} : { reason: 'foreign_project_integration', instructions: manual_instructions(host) }) };
+  }
+  node_fs.mkdirSync(node_path.dirname(file), { recursive: true });
+  try { node_fs.writeFileSync(file, source, { flag: 'wx', mode: 0o755 }); }
+  catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+    return { status: 'conflict', host, changed: false, config_path: file, restart_required: false, reason: 'foreign_project_integration', instructions: manual_instructions(host) };
+  }
+  say(`${host}: installed project integration ${file}; restart or reload the host once`);
+  return { status: 'available', host, changed: true, config_path: file, restart_required: true };
 };
 
 const read_config = config_path => {
@@ -212,6 +251,10 @@ const remove_hook = (config, host, { scope = 'project', cwd = process.cwd(), eve
 };
 
 const apply_to_host = (host, scope, off, say, cwd = process.cwd()) => {
+  if (PROJECT_HOSTS.includes(host)) {
+    if (scope !== 'project') return { status: 'not_available', host, reason: 'project_scope_only' };
+    return apply_project_host(host, off, say, cwd);
+  }
   if (!HOSTS.includes(host)) {
     const result = { status: 'not_available', host, reason: 'no_host_hook_integration', instructions: manual_instructions(host) };
     say(`${host}: hooks not_available — use explicit manual capture and closeout instructions`);
@@ -295,6 +338,15 @@ const apply_guard = (off, say, cwd = process.cwd()) => {
   }
 };
 
+const has_owned_integration = (host, cwd) => {
+  if (PROJECT_HOSTS.includes(host)) {
+    const file = project_host_file(host, cwd);
+    return node_fs.existsSync(file) && node_fs.readFileSync(file, 'utf8') === project_host_source(host);
+  }
+  const config = read_config(config_path_for(host, 'project', cwd));
+  return ['Stop', 'UserPromptSubmit'].some(event => remove_hook(config, host, { cwd, event }).changed);
+};
+
 const nudge_setup = () => {
   const marker = node_path.join(__dirname, '..', '.setup-checked');
   if (!node_fs.existsSync(marker)) {
@@ -303,26 +355,36 @@ const nudge_setup = () => {
   }
 };
 
-const install = ({ scope = 'project', off = false, quiet = false, hosts = HOSTS, cwd = process.cwd(), say: supplied_say } = {}) => {
+const install = ({ scope = 'project', off = false, quiet = false, hosts, cwd = process.cwd(), say: supplied_say } = {}) => {
+  const selected_hosts = hosts || (scope === 'project' ? ALL_HOSTS : HOSTS);
   const say = quiet ? () => {} : message => console.log(message);
   const output = supplied_say || say;
 
-  const results = hosts.map(host => apply_to_host(host, scope, off, output, cwd));
+  const results = selected_hosts.map(host => apply_to_host(host, scope, off, output, cwd));
 
-  if (scope === 'project' && hosts.some(host => HOSTS.includes(host))) {
-    apply_guard(off, output, cwd);
+  if (scope === 'project' && selected_hosts.some(host => ALL_HOSTS.includes(host))) {
+    if (!off) apply_guard(false, output, cwd);
+    else if (!ALL_HOSTS.some(host => !selected_hosts.includes(host) && has_owned_integration(host, cwd))) apply_guard(true, output, cwd);
   }
 
-  if (!off && hosts.some(host => HOSTS.includes(host))) nudge_setup();
+  if (!off && selected_hosts.some(host => ALL_HOSTS.includes(host))) nudge_setup();
 
-  hosts.filter(host => HOSTS.includes(host)).forEach(host => output(`Hook command (${host}): ${hook_command_for(host)}`));
+  selected_hosts.filter(host => HOSTS.includes(host)).forEach(host => output(`Hook command (${host}): ${hook_command_for(host)}`));
   return results.length === 1 ? results[0] : { status: 'available', hosts: results };
 };
 
-const inspect = ({ cwd = process.cwd(), scope = 'project', hosts = HOSTS } = {}) => {
+const inspect = ({ cwd = process.cwd(), scope = 'project', hosts } = {}) => {
+  const selected_hosts = hosts || (scope === 'project' ? ALL_HOSTS : HOSTS);
   const found = [];
-  for (const host of hosts) {
+  for (const host of selected_hosts) {
     const config_path = config_path_for(host, scope, cwd);
+    if (PROJECT_HOSTS.includes(host) && scope !== 'project') continue;
+    if (PROJECT_HOSTS.includes(host)) {
+      const file = project_host_file(host, cwd);
+      const source = project_host_source(host);
+      if (node_fs.existsSync(file) && node_fs.readFileSync(file, 'utf8') === source) found.push(`remove the verified Agentflow ${host} integration from ${file}`);
+      continue;
+    }
     const config = read_config(config_path);
     if (['Stop', 'UserPromptSubmit'].some(event => remove_hook(config, host, { scope, cwd, event }).changed)) {
       found.push(`remove the verified Agentflow Stop hook from ${config_path}`);

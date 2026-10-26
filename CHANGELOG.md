@@ -1,6 +1,14 @@
 # Changelog
 
-Notable Agentflow changes, with the newest version first. Release metadata uses major.minor.patch; the current release is 8.4.15. Earlier dates identify recorded source milestones, not independently verified public publication dates.
+Notable Agentflow changes, with the newest version first. Release metadata uses major.minor.patch; the current release is 8.4.16. Earlier dates identify recorded source milestones, not independently verified public publication dates.
+
+## [8.4.16]
+
+- Add project-scoped Pi and OMP integrations for automatic owner-message capture and completion checks, with host-provided session identity after activation, one sessionless first-start bootstrap when notebook ownership is off, one corrective continuation for blocking findings, restart reporting, and safe install/removal.
+
+- Fix Pi closeout retries by validating the candidate before publishing completion sidecars and allowing metadata-only fenced corrections while the same Ask and report body remain open.
+
+- Document that LSP is optional for Agentflow workflow automation; it remains a separate code-navigation and diagnostics capability.
 
 ## [8.4.15]
 

@@ -49,10 +49,8 @@ const main = () => {
   const host_index = process.argv.indexOf('--host');
   const active_host = host_index >= 0 ? process.argv[host_index + 1] : undefined;
 
-  // Installed hook commands MUST carry their owning host explicitly. Runtime
-  // marker variables are not part of the shared Stop-hook payload. — I-043.
-  if (active_host !== 'codex' && active_host !== 'claude') {
-    throw new Error('Stop hook requires --host codex or --host claude');
+  if (!['codex', 'claude', 'pi', 'omp'].includes(active_host)) {
+    throw new Error('Stop hook requires --host codex, --host claude, --host pi or --host omp');
   }
 
   // Claude prompt events do not establish owner-message origin. Loaded older

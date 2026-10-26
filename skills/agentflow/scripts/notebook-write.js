@@ -427,7 +427,6 @@ const prepare_close_candidate = ({ notebook, input, root = process.cwd(), notebo
 
   const inspected = inspect_notebook(notebook.text, ask);
   const parsed = parse_close_document(document, notebook.text, ask, root, host, session);
-  if (root && notebook_path) parsed.reply = require('./completion-record').publish_reply(parsed.reply, { project_root: root, notebook_path, ask, ownership });
   const runs = [];
   const run_texts = new Set();
   let expected_number = inspected.next_run_number;
@@ -538,22 +537,32 @@ const close_round = ({ root = process.cwd(), notebook: notebook_path, input, hos
     verify_notebook_unchanged(notebook_file, notebook);
     const ownership = notebook_owner.guard({ root: repository_root, notebook: notebook_path, text: notebook.text, ask: document?.ask, host: host || document?.host || document?.status?.host, session });
     prepared = prepare_close_candidate({ notebook, input: document, root: repository_root, notebook_path, host: ownership.identity.host, session, ownership });
-      const { validate_candidate } = require('./completion-context');
-      const repository_notebook = node_path.relative(repository_root, notebook_file).split(node_path.sep).join('/');
-      const config_file = ag_settings.active_config_path(repository_root, repository_notebook);
+    const { validate_candidate } = require('./completion-context');
+    const repository_notebook = node_path.relative(repository_root, notebook_file).split(node_path.sep).join('/');
+    const config_file = ag_settings.active_config_path(repository_root, repository_notebook);
+    const validate_prepared = () => {
       const candidate_result = validate_candidate({
-      devlog_text: prepared.candidate_text,
-      context: {
-        project_root: repository_root,
-        notebook_path: repository_notebook,
-        config_path: node_fs.existsSync(config_file) ? config_file : undefined,
-        active_host: host || document?.host || document?.status?.host,
-        require_status_projection: true,
-        ignore_paths: [node_path.relative(repository_root, lock_path)],
-      },
-    });
-    const blocking = candidate_result.checks.filter(check => check.status === 'fail');
-    if (blocking.length > 0) fail(`candidate completion check failed: ${blocking.map(check => `${check.id}: ${check.detail}`).join('; ')}`);
+        devlog_text: prepared.candidate_text,
+        context: {
+          project_root: repository_root,
+          notebook_path: repository_notebook,
+          config_path: node_fs.existsSync(config_file) ? config_file : undefined,
+          active_host: host || document?.host || document?.status?.host,
+          require_status_projection: true,
+          ignore_paths: [node_path.relative(repository_root, lock_path)],
+        },
+      });
+      const blocking = candidate_result.checks.filter(check => check.status === 'fail');
+      if (blocking.length > 0) fail(`candidate completion check failed: ${blocking.map(check => `${check.id}: ${check.detail}`).join('; ')}`);
+    };
+    validate_prepared();
+    const linked = require('./completion-record').publish_reply(prepared.reply, { project_root: repository_root, notebook_path, ask: document.ask, ownership });
+    if (linked !== prepared.reply) {
+      if (count_exact(prepared.candidate_text, prepared.reply) !== 1) fail('close-round completion metadata must appear exactly once in the candidate Reply');
+      prepared.candidate_text = prepared.candidate_text.replace(prepared.reply, linked);
+      prepared.candidate = Buffer.from(prepared.candidate_text);
+    }
+    validate_prepared();
     notebook_owner.verify(ownership, { root: repository_root, notebook: notebook_path, ask: document.ask, active: true });
     atomic_replace(notebook_file, prepared.candidate, notebook.mode);
     notebook_owner.release(ownership, read_regular_file(notebook_file, 'notebook').text);
